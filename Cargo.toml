@@ -1,6 +1,8 @@
 [package]
 name = "mdbook-man"
 description = "A backend for mdBook that generates man pages"
+repository = "https://github.com/vv9k/mdbook-man"
+homepage = "https://github.com/vv9k/mdbook-man"
 authors = ["Wojciech Kępka <wojciech@wkepka.dev>"]
 keywords = ["mdbook", "man", "manpages", "documentation"]
 categories = ["command-line-interface", "development-tools"]
