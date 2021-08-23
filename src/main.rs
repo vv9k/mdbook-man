@@ -1,14 +1,12 @@
 // src/main.rs
 extern crate mdbook;
 
-use comrak::arena_tree::NodeEdge;
-use comrak::nodes::{Ast, AstNode, NodeValue};
-use comrak::{format_html, parse_document, Arena, ComrakOptions};
+use comrak::nodes::{AstNode, NodeValue};
+use comrak::{parse_document, Arena, ComrakOptions};
 use mdbook::renderer::RenderContext;
-use mdbook::{book::Chapter, BookItem};
-use roffman::{FontStyle, IntoRoffNode, Roff, RoffNode, RoffText, Roffable, SectionNumber};
+use mdbook::BookItem;
+use roffman::{IntoRoffNode, Roff, RoffNode, RoffText, Roffable, SectionNumber};
 
-use std::borrow::Cow;
 use std::io;
 
 fn iter_nodes<'a, F>(node: &'a AstNode<'a>, out: &mut Parser, f: &F)
@@ -25,6 +23,7 @@ where
 struct Parser {
     nodes: Vec<RoffNode>,
     last_md_node: MarkdownNode,
+    _heading: Option<RoffText>,
 }
 
 impl Parser {
@@ -43,6 +42,18 @@ impl Parser {
     pub fn append_roff(&mut self, roff: RoffNode) {
         self.nodes.push(roff);
     }
+
+    pub fn set_heading(&mut self, text: RoffText) {
+        self._heading = Some(text);
+    }
+
+    pub fn consume_heading(&mut self) -> Option<RoffText> {
+        std::mem::replace(&mut self._heading, None)
+    }
+
+    pub fn has_heading(&self) -> bool {
+        self._heading.is_some()
+    }
 }
 
 #[derive(Copy, Debug, Clone)]
@@ -56,6 +67,8 @@ enum MarkdownNode {
     Link,
     SoftBreak,
     Text,
+    List,
+    ListItem,
 
     // fallback
     Empty,
@@ -73,6 +86,8 @@ impl From<&NodeValue> for MarkdownNode {
             NodeValue::Link(_) => MarkdownNode::Link,
             NodeValue::SoftBreak => MarkdownNode::SoftBreak,
             NodeValue::Text(_) => MarkdownNode::Text,
+            NodeValue::List(_) => MarkdownNode::List,
+            NodeValue::Item(_) => MarkdownNode::ListItem,
             _ => MarkdownNode::Empty,
         }
     }
@@ -90,14 +105,14 @@ fn parse_markdown<'a>(text: &'a str, arena: &'a Arena<AstNode<'a>>) -> Vec<RoffN
 
     iter_nodes(root, &mut parser, &|node, parser| {
         let value = &node.data.borrow().value;
-        // eprintln!("node: {:?}", value);
+        eprintln!("node: {:?}", value);
         match value {
             node
             @
             (NodeValue::Heading(_)
             | NodeValue::Paragraph
-            | NodeValue::Code(_)
             | NodeValue::Strong
+            | NodeValue::List(_)
             | NodeValue::Emph) => parser.update_last_node(MarkdownNode::from(node)),
             NodeValue::Link(ref link) => {
                 let url = String::from_utf8_lossy(link.url.as_slice());
@@ -106,12 +121,16 @@ fn parse_markdown<'a>(text: &'a str, arena: &'a Arena<AstNode<'a>>) -> Vec<RoffN
                 parser.update_last_node(MarkdownNode::Link);
             }
             NodeValue::SoftBreak => {
-                // parser.append_roff("\r".into_roff());
-                // parser.update_last_node(MarkdownNode::SoftBreak);
+                parser.append_roff("\r\n".into_roff());
+                parser.update_last_node(MarkdownNode::SoftBreak);
+            }
+            NodeValue::Code(code) => {
+                let text = String::from_utf8_lossy(code.literal.as_slice());
+                parser.append_roff(text.roff().italic().into_roff());
+                parser.update_last_node(MarkdownNode::Code);
             }
             NodeValue::CodeBlock(ref block) => {
                 let text = String::from_utf8_lossy(block.literal.as_slice());
-                eprintln!("```{}```\n\n", text);
                 let info = String::from_utf8_lossy(block.info.as_slice());
                 let title = if !info.is_empty() {
                     Some(info.roff().bold())
@@ -119,9 +138,21 @@ fn parse_markdown<'a>(text: &'a str, arena: &'a Arena<AstNode<'a>>) -> Vec<RoffN
                     None
                 };
                 let para = RoffNode::indented_paragraph(
-                    [RoffNode::example([text.as_ref(), "\n"])],
+                    [
+                        if let Some(title) = title {
+                            title.bold()
+                        } else {
+                            "".roff()
+                        }
+                        .into_roff(),
+                        RoffNode::indented_paragraph(
+                            [RoffNode::example([text.as_ref(), "\n"])],
+                            Some(4),
+                            None::<&str>,
+                        ),
+                    ],
                     Some(2),
-                    title,
+                    None::<&str>,
                 );
                 parser.append_roff(para);
                 parser.update_last_node(MarkdownNode::CodeBlock);
@@ -129,6 +160,15 @@ fn parse_markdown<'a>(text: &'a str, arena: &'a Arena<AstNode<'a>>) -> Vec<RoffN
             NodeValue::Text(ref text) => {
                 let text = String::from_utf8_lossy(text);
                 match parser.last_node() {
+                    MarkdownNode::Heading if !parser.has_heading() => {
+                        parser.set_heading(text.roff().bold());
+                        return;
+                    }
+                    MarkdownNode::Heading if parser.has_heading() => {
+                        let heading = parser.consume_heading().unwrap();
+                        parser.append_roff(RoffNode::tagged_paragraph([text], heading));
+                    }
+
                     MarkdownNode::Paragraph => {
                         parser.append_roff(RoffNode::paragraph([text]));
                     }
@@ -145,13 +185,22 @@ fn parse_markdown<'a>(text: &'a str, arena: &'a Arena<AstNode<'a>>) -> Vec<RoffN
                 parser.update_last_node(MarkdownNode::Text);
             }
             NodeValue::Document => {}
+            n if parser.has_heading() => {
+                let heading = parser.consume_heading().unwrap();
+                parser.append_roff("\n".into_roff());
+                parser.append_roff(heading.bold().into_roff());
+                parser.append_roff("\n".into_roff());
+                parser.update_last_node(MarkdownNode::Text);
+            }
             n => {
                 eprintln!("unhandled node: {:?}", n);
                 parser.update_last_node(MarkdownNode::Empty);
             }
         }
     });
-    parser.finalize()
+    let x = parser.finalize();
+    eprintln!("roffs: {:#?}", x);
+    x
 }
 
 fn main() {

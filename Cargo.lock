@@ -1313,7 +1313,6 @@ dependencies = [
 [[package]]
 name = "roffman"
 version = "0.2.0"
-source = "git+https://github.com/vv9k/roffman#4eefd1c09c630a91f1cb0a61e14c13c8a8aeb6fd"
 
 [[package]]
 name = "ryu"
