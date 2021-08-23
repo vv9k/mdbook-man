@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  workflow_dispatch:
+  push:
+    paths-ignore:
+      - "LICENSE"
+      - "README"
+    branches:
+      - master
+  pull_request:
+    paths-ignore:
+      - "LICENSE"
+      - "README"
+    branches:
+      - master
+
+jobs:
+  test:
+    runs-on: ubuntu-18.04
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Install mdbook-man
+        run : cargo install --path .
+
+      - name: Setup mdBook
+        uses: peaceiris/actions-mdbook@v1
+        with:
+          mdbook-version: 'latest'
+
+      - name: Clone the book
+        run : git clone https://github.com/rust-lang/book
+
+      - name: Install groff
+        run : sudo apt -y update && sudo apt -y install groff
+
+      - name: Create out dir
+        run : mkdir output
+
+      - name: Update config
+        run : >-
+          echo -e "\n\n[output.man]\noutput_dir = \"bookman\"\\n" >> book/book.toml
+
+      - name: Build the book
+        run: mdbook build book
+
+      - name: Convert to html
+        run: roff2html book/bookman/* > output/index.html
+ 
+      - name: Deploy it
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./output
