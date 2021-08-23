@@ -21,6 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
+
       - name: Install mdbook-man
         run : cargo install --path .
 
@@ -32,21 +33,18 @@ jobs:
       - name: Clone the book
         run : git clone https://github.com/rust-lang/book
 
-      - name: Install groff
-        run : sudo apt -y update && sudo apt -y install groff
+      - name: get the book
+        run : wget https://vv9k.github.io/mdbook-man/book.man
 
-      - name: Create out dir
-        run : mkdir output
+      - run : roff2html book.man
 
       - name: Update config
         run : >-
-          echo -e "\n\n[output.man]\noutput_dir = \"bookman\"\\n" >> book/book.toml
+          echo -e "\n\n[output.man]\noutput-dir = \"/home/runner/work/mdbook-man/mdbook-man/output\"\\n" >> book/book.toml
 
       - name: Build the book
         run: mdbook build book
 
-      - name: Convert to html
-        run: roff2html book/bookman/* > output/index.html
  
       - name: Deploy it
         uses: peaceiris/actions-gh-pages@v3
