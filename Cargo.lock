@@ -809,6 +809,7 @@ dependencies = [
  "comrak",
  "mdbook",
  "roffman",
+ "serde",
 ]
 
 [[package]]
@@ -1313,6 +1314,7 @@ dependencies = [
 [[package]]
 name = "roffman"
 version = "0.2.0"
+source = "git+https://github.com/vv9k/roffman#e3755f03367de0bf17d1930157ed52968aa14498"
 
 [[package]]
 name = "ryu"
@@ -1340,6 +1342,9 @@ name = "serde"
 version = "1.0.128"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1056a0db1978e9dbf0f6e4fca677f6f9143dc1c19de346f22cac23e422196834"
+dependencies = [
+ "serde_derive",
+]
 
 [[package]]
 name = "serde_derive"

@@ -5,9 +5,13 @@ use comrak::nodes::{AstNode, NodeValue};
 use comrak::{parse_document, Arena, ComrakOptions};
 use mdbook::renderer::RenderContext;
 use mdbook::BookItem;
-use roffman::{IntoRoffNode, Roff, RoffNode, RoffText, Roffable, SectionNumber};
+use roffman::{IntoRoffNode, Roff, RoffNode, Roffable, SectionNumber};
+use serde::{Deserialize, Serialize};
 
+use std::fs;
 use std::io;
+use std::path::PathBuf;
+use std::time::Duration;
 
 fn iter_nodes<'a, F>(node: &'a AstNode<'a>, out: &mut Parser, f: &F)
 where
@@ -23,7 +27,6 @@ where
 struct Parser {
     nodes: Vec<RoffNode>,
     last_md_node: MarkdownNode,
-    _heading: Option<RoffText>,
 }
 
 impl Parser {
@@ -42,18 +45,6 @@ impl Parser {
     pub fn append_roff(&mut self, roff: RoffNode) {
         self.nodes.push(roff);
     }
-
-    pub fn set_heading(&mut self, text: RoffText) {
-        self._heading = Some(text);
-    }
-
-    pub fn consume_heading(&mut self) -> Option<RoffText> {
-        std::mem::replace(&mut self._heading, None)
-    }
-
-    pub fn has_heading(&self) -> bool {
-        self._heading.is_some()
-    }
 }
 
 #[derive(Copy, Debug, Clone)]
@@ -69,6 +60,8 @@ enum MarkdownNode {
     Text,
     List,
     ListItem,
+    LineBreak,
+    Image,
 
     // fallback
     Empty,
@@ -88,6 +81,8 @@ impl From<&NodeValue> for MarkdownNode {
             NodeValue::Text(_) => MarkdownNode::Text,
             NodeValue::List(_) => MarkdownNode::List,
             NodeValue::Item(_) => MarkdownNode::ListItem,
+            NodeValue::LineBreak => MarkdownNode::LineBreak,
+            NodeValue::Image(_) => MarkdownNode::Image,
             _ => MarkdownNode::Empty,
         }
     }
@@ -101,33 +96,21 @@ impl Default for MarkdownNode {
 
 fn parse_markdown<'a>(text: &'a str, arena: &'a Arena<AstNode<'a>>) -> Vec<RoffNode> {
     let mut parser = Parser::default();
-    let root = parse_document(&arena, text, &ComrakOptions::default());
+    let root = parse_document(arena, text, &ComrakOptions::default());
 
     iter_nodes(root, &mut parser, &|node, parser| {
         let value = &node.data.borrow().value;
-        eprintln!("node: {:?}", value);
         match value {
-            node
-            @
-            (NodeValue::Heading(_)
-            | NodeValue::Paragraph
-            | NodeValue::Strong
-            | NodeValue::List(_)
-            | NodeValue::Emph) => parser.update_last_node(MarkdownNode::from(node)),
-            NodeValue::Link(ref link) => {
+            NodeValue::Link(ref link) | NodeValue::Image(ref link) => {
                 let url = String::from_utf8_lossy(link.url.as_slice());
                 let title = String::from_utf8_lossy(link.title.as_slice());
                 parser.append_roff(RoffNode::url(title, url));
-                parser.update_last_node(MarkdownNode::Link);
-            }
-            NodeValue::SoftBreak => {
-                parser.append_roff("\r\n".into_roff());
-                parser.update_last_node(MarkdownNode::SoftBreak);
             }
             NodeValue::Code(code) => {
                 let text = String::from_utf8_lossy(code.literal.as_slice());
+                parser.append_roff("`".into_roff());
                 parser.append_roff(text.roff().italic().into_roff());
-                parser.update_last_node(MarkdownNode::Code);
+                parser.append_roff("`".into_roff());
             }
             NodeValue::CodeBlock(ref block) => {
                 let text = String::from_utf8_lossy(block.literal.as_slice());
@@ -137,36 +120,24 @@ fn parse_markdown<'a>(text: &'a str, arena: &'a Arena<AstNode<'a>>) -> Vec<RoffN
                 } else {
                     None
                 };
-                let para = RoffNode::indented_paragraph(
-                    [
-                        if let Some(title) = title {
-                            title.bold()
-                        } else {
-                            "".roff()
-                        }
-                        .into_roff(),
-                        RoffNode::indented_paragraph(
-                            [RoffNode::example([text.as_ref(), "\n"])],
-                            Some(4),
-                            None::<&str>,
-                        ),
-                    ],
+                let para = RoffNode::nested([RoffNode::indented_paragraph(
+                    [RoffNode::linebreak(), RoffNode::example([text.as_ref()])],
                     Some(2),
-                    None::<&str>,
-                );
+                    title,
+                )]);
                 parser.append_roff(para);
-                parser.update_last_node(MarkdownNode::CodeBlock);
             }
             NodeValue::Text(ref text) => {
                 let text = String::from_utf8_lossy(text);
                 match parser.last_node() {
-                    MarkdownNode::Heading if !parser.has_heading() => {
-                        parser.set_heading(text.roff().bold());
+                    MarkdownNode::Heading => {
+                        parser.append_roff(RoffNode::linebreak());
+                        parser.append_roff(RoffNode::linebreak());
+                        parser.append_roff(text.roff().bold().into_roff());
+                        parser.append_roff(RoffNode::linebreak());
+                        parser.append_roff("=".repeat(text.len() + 2).into_roff());
+                        parser.append_roff(RoffNode::linebreak());
                         return;
-                    }
-                    MarkdownNode::Heading if parser.has_heading() => {
-                        let heading = parser.consume_heading().unwrap();
-                        parser.append_roff(RoffNode::tagged_paragraph([text], heading));
                     }
 
                     MarkdownNode::Paragraph => {
@@ -178,47 +149,92 @@ fn parse_markdown<'a>(text: &'a str, arena: &'a Arena<AstNode<'a>>) -> Vec<RoffN
                     MarkdownNode::Strong => {
                         parser.append_roff(text.roff().bold().into_roff());
                     }
+                    MarkdownNode::ListItem => {
+                        parser.append_roff(text.into_roff());
+                        parser.append_roff(RoffNode::linebreak());
+                    }
                     _ => {
                         parser.append_roff(text.into_roff());
                     }
                 }
-                parser.update_last_node(MarkdownNode::Text);
             }
-            NodeValue::Document => {}
-            n if parser.has_heading() => {
-                let heading = parser.consume_heading().unwrap();
-                parser.append_roff("\n".into_roff());
-                parser.append_roff(heading.bold().into_roff());
-                parser.append_roff("\n".into_roff());
-                parser.update_last_node(MarkdownNode::Text);
+            NodeValue::LineBreak => {
+                parser.append_roff(RoffNode::linebreak());
             }
+            NodeValue::Document | NodeValue::HtmlInline(_) | NodeValue::HtmlBlock(_) => {}
             n => {
                 eprintln!("unhandled node: {:?}", n);
-                parser.update_last_node(MarkdownNode::Empty);
             }
         }
+
+        parser.update_last_node(MarkdownNode::from(value));
     });
-    let x = parser.finalize();
-    eprintln!("roffs: {:#?}", x);
-    x
+    parser.finalize()
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+#[serde(default, rename_all = "kebab-case")]
+pub struct ManOutputConfiguration {
+    pub output_dir: Option<PathBuf>,
+    #[serde(default)]
+    pub split_chapters: bool,
 }
 
 fn main() {
     let mut stdin = io::stdin();
     let ctx = RenderContext::from_json(&mut stdin).unwrap();
     let arena = Arena::new();
+    let cfg: ManOutputConfiguration = ctx
+        .config
+        .get_deserialized_opt("output.man")
+        .ok()
+        .flatten()
+        .unwrap_or_default();
 
-    let mut page = Roff::new(
-        ctx.config.book.title.unwrap_or_default(),
-        SectionNumber::Miscellaneous,
-    );
+    if !cfg.split_chapters {
+        let title = ctx.config.book.title.unwrap_or_default();
+        let mut page = Roff::new(&title, SectionNumber::Miscellaneous);
 
-    for item in ctx.book.iter() {
-        if let BookItem::Chapter(ref ch) = *item {
-            let parsed = parse_markdown(ch.content.as_str(), &arena);
-            page = page.section(ch.name.as_str(), parsed);
+        for item in ctx.book.iter() {
+            if let BookItem::Chapter(ref ch) = *item {
+                let parsed = parse_markdown(ch.content.as_str(), &arena);
+                page = page.section(ch.name.as_str(), parsed);
+            }
+        }
+
+        let page = page.to_string().unwrap();
+
+        if let Some(path) = cfg.output_dir {
+            if !path.exists() {
+                fs::create_dir_all(&path).unwrap();
+            }
+            let filename = if title.is_empty() { "book.man" } else { &title };
+            fs::write(path.join(filename), page).unwrap()
+        } else {
+            println!("{}", page)
+        }
+    } else {
+        let mut pages = vec![];
+        for item in ctx.book.iter() {
+            if let BookItem::Chapter(ref ch) = *item {
+                let mut page = Roff::new(ch.name.as_str(), SectionNumber::Miscellaneous);
+                let parsed = parse_markdown(ch.content.as_str(), &arena);
+                page = page.section(ch.name.as_str(), parsed);
+                pages.push(page);
+            }
+        }
+
+        for (i, page) in pages.iter().enumerate() {
+            let page = page.to_string().unwrap();
+
+            if let Some(path) = &cfg.output_dir {
+                if !path.exists() {
+                    fs::create_dir_all(&path).unwrap();
+                }
+                fs::write(path.join(format!("chapter{}.man", i)), page).unwrap()
+            } else {
+                println!("{}", page)
+            }
         }
     }
-
-    println!("{}", page.to_string().unwrap());
 }
