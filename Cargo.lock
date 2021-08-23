@@ -1313,8 +1313,9 @@ dependencies = [
 
 [[package]]
 name = "roffman"
-version = "0.2.0"
-source = "git+https://github.com/vv9k/roffman#e3755f03367de0bf17d1930157ed52968aa14498"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f62c016e3103f55a189227c260e3f2dc37abcf0c0a28d58acb7729e801946d22"
 
 [[package]]
 name = "ryu"
