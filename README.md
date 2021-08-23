@@ -32,6 +32,14 @@ split-chapters = true # By default all chapters will be joined as one single man
                       # to override this set this parameter to true.
 ```
 
+## Example
+
+You can check out [the Rust Programming Language book](https://doc.rust-lang.org/book/) compiled as a man page [here](https://vv9k.github.io/mdbook-man/book.man).
+
+```console
+$ wget https://vv9k.github.io/mdbook-man/book.man
+$ man -l book.man
+```
 
 ## License
 [MIT](https://github.com/vv9k/mdbook-man/blob/master/LICENSE)
