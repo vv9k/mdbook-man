@@ -161,10 +161,7 @@ fn parse_markdown<'a>(text: &'a str, arena: &'a Arena<AstNode<'a>>) -> Vec<RoffN
             NodeValue::LineBreak => {
                 parser.append_roff(RoffNode::linebreak());
             }
-            NodeValue::Document | NodeValue::HtmlInline(_) | NodeValue::HtmlBlock(_) => {}
-            n => {
-                eprintln!("unhandled node: {:?}", n);
-            }
+            _ => {}
         }
 
         parser.update_last_node(MarkdownNode::from(value));
@@ -208,8 +205,7 @@ fn main() {
             if !path.exists() {
                 fs::create_dir_all(&path).unwrap();
             }
-            let filename = if title.is_empty() { "book.man" } else { &title };
-            fs::write(path.join(filename), page).unwrap()
+            fs::write(path.join("book.man"), page).unwrap()
         } else {
             println!("{}", page)
         }
