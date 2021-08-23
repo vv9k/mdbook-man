@@ -17,10 +17,9 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-18.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-
 
       - name: Install mdbook-man
         run : cargo install --path .
@@ -33,11 +32,6 @@ jobs:
       - name: Clone the book
         run : git clone https://github.com/rust-lang/book
 
-      - name: get the book
-        run : wget https://vv9k.github.io/mdbook-man/book.man
-
-      - run : roff2html book.man
-
       - name: Update config
         run : >-
           echo -e "\n\n[output.man]\noutput-dir = \"/home/runner/work/mdbook-man/mdbook-man/output\"\\n" >> book/book.toml
@@ -45,7 +39,6 @@ jobs:
       - name: Build the book
         run: mdbook build book
 
- 
       - name: Deploy it
         uses: peaceiris/actions-gh-pages@v3
         with:
