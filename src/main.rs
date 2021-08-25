@@ -1,17 +1,15 @@
 // src/main.rs
 extern crate mdbook;
 
-use comrak::nodes::{AstNode, NodeValue};
-use comrak::{parse_document, Arena, ComrakOptions};
-use mdbook::renderer::RenderContext;
-use mdbook::BookItem;
+use comrak::{
+    nodes::{AstNode, NodeValue},
+    parse_document, Arena, ComrakOptions,
+};
+use mdbook::{renderer::RenderContext, BookItem};
 use roffman::{IntoRoffNode, Roff, RoffNode, Roffable, SectionNumber};
 use serde::{Deserialize, Serialize};
 
-use std::fs;
-use std::io;
-use std::path::PathBuf;
-use std::time::Duration;
+use std::{fs, io, path::PathBuf};
 
 fn iter_nodes<'a, F>(node: &'a AstNode<'a>, out: &mut Parser, f: &F)
 where
@@ -42,8 +40,8 @@ impl Parser {
         self.nodes
     }
 
-    pub fn append_roff(&mut self, roff: RoffNode) {
-        self.nodes.push(roff);
+    pub fn append_roff(&mut self, roff: impl IntoRoffNode) {
+        self.nodes.push(roff.into_roff());
     }
 }
 
@@ -94,7 +92,7 @@ impl Default for MarkdownNode {
     }
 }
 
-fn parse_markdown<'a>(text: &'a str, arena: &'a Arena<AstNode<'a>>) -> Vec<RoffNode> {
+fn markdown_to_roff<'a>(text: &'a str, arena: &'a Arena<AstNode<'a>>) -> Vec<RoffNode> {
     let mut parser = Parser::default();
     let root = parse_document(arena, text, &ComrakOptions::default());
 
@@ -172,9 +170,13 @@ fn parse_markdown<'a>(text: &'a str, arena: &'a Arena<AstNode<'a>>) -> Vec<RoffN
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 pub struct ManOutputConfiguration {
+    /// If specified the pages will be saved as files rather than printed to stdout.
     pub output_dir: Option<PathBuf>,
     #[serde(default)]
+    /// Wether to split the book into separate files per chapter or render one man page with all chapters.
     pub split_chapters: bool,
+    /// Override the name of the output file if `output_dir` is also specified.
+    pub filename: Option<String>,
 }
 
 fn main() {
@@ -194,7 +196,7 @@ fn main() {
 
         for item in ctx.book.iter() {
             if let BookItem::Chapter(ref ch) = *item {
-                let parsed = parse_markdown(ch.content.as_str(), &arena);
+                let parsed = markdown_to_roff(ch.content.as_str(), &arena);
                 page = page.section(ch.name.as_str(), parsed);
             }
         }
@@ -205,7 +207,12 @@ fn main() {
             if !path.exists() {
                 fs::create_dir_all(&path).unwrap();
             }
-            fs::write(path.join("book.man"), page).unwrap()
+            let filename = if let Some(filename) = &cfg.filename {
+                filename
+            } else {
+                "book.man"
+            };
+            fs::write(path.join(filename), page).unwrap()
         } else {
             println!("{}", page)
         }
@@ -214,7 +221,7 @@ fn main() {
         for item in ctx.book.iter() {
             if let BookItem::Chapter(ref ch) = *item {
                 let mut page = Roff::new(ch.name.as_str(), SectionNumber::Miscellaneous);
-                let parsed = parse_markdown(ch.content.as_str(), &arena);
+                let parsed = markdown_to_roff(ch.content.as_str(), &arena);
                 page = page.section(ch.name.as_str(), parsed);
                 pages.push(page);
             }
@@ -234,3 +241,4 @@ fn main() {
         }
     }
 }
+

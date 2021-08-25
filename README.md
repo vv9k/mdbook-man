@@ -26,10 +26,12 @@ This are the available configuration parameters:
 
 ```toml
 [output.man]
-output-dir = "/some/path/to/a/directory"  # this directory doesn't have to exist, it will be created automatically
+output-dir = "/some/path/to/a/directory"  # this directory doesn't have to exist, it will be created automatically.
 
 split-chapters = true # By default all chapters will be joined as one single man page, 
-                      # to override this set this parameter to true.
+# to override this set this parameter to true.
+
+filename = "custom-book-filename.man" # override the default filename if the `output-dir` is also specified.
 ```
 
 ## Example

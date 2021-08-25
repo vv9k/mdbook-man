@@ -33,11 +33,29 @@ jobs:
         run : git clone https://github.com/rust-lang/book
 
       - name: Update config
-        run : >-
-          echo -e "\n\n[output.man]\noutput-dir = \"/home/runner/work/mdbook-man/mdbook-man/output\"\\n" >> book/book.toml
+        run : echo -e "\n\n[output.man]\n" >> book/book.toml
 
-      - name: Build the book
+      - name: Build the book printed to stdout
         run: mdbook build book
+
+      - name: Update config
+        run : >-
+          echo -e "output-dir = \"/home/runner/work/mdbook-man/mdbook-man/output\"\\n" >> book/book.toml
+
+      - name: Build the book to a man file with a default filename
+        run: mdbook build book
+
+      - name: Verify the book exists
+        run: test -f output/book.man
+
+      - name: Add custom filename to config
+        run: echo -e "filename = \"custom-name.man\"\n" >> book/book.toml
+
+      - name: Build the book to a custom file
+        run: mdbook build book
+
+      - name: Verify the book exists with a custom filename
+        run: test -f output/custom-name.man
 
       - name: Deploy it
         uses: peaceiris/actions-gh-pages@v3
