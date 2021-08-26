@@ -167,9 +167,39 @@ fn markdown_to_roff<'a>(text: &'a str, arena: &'a Arena<AstNode<'a>>) -> Vec<Rof
     parser.finalize()
 }
 
+fn mdbook_to_roff(ctx: &RenderContext) -> Roff {
+    let arena = Arena::new();
+    let title = ctx.config.book.title.clone().unwrap_or_default();
+    let mut page = Roff::new(&title, SectionNumber::Miscellaneous);
+
+    for item in ctx.book.iter() {
+        if let BookItem::Chapter(ref ch) = *item {
+            let parsed = markdown_to_roff(ch.content.as_str(), &arena);
+            page = page.section(ch.name.as_str(), parsed);
+        }
+    }
+
+    page
+}
+
+fn mdbook_to_roff_chapters(ctx: &RenderContext) -> Vec<Roff> {
+    let arena = Arena::new();
+    let mut pages = vec![];
+    for item in ctx.book.iter() {
+        if let BookItem::Chapter(ref ch) = *item {
+            let mut page = Roff::new(ch.name.as_str(), SectionNumber::Miscellaneous);
+            let parsed = markdown_to_roff(ch.content.as_str(), &arena);
+            page = page.section(ch.name.as_str(), parsed);
+            pages.push(page);
+        }
+    }
+
+    pages
+}
+
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
-pub struct ManOutputConfiguration {
+struct ManOutputConfiguration {
     /// If specified the pages will be saved as files rather than printed to stdout.
     pub output_dir: Option<PathBuf>,
     #[serde(default)]
@@ -179,27 +209,23 @@ pub struct ManOutputConfiguration {
     pub filename: Option<String>,
 }
 
+impl ManOutputConfiguration {
+    fn load(ctx: &RenderContext) -> Self {
+        ctx.config
+            .get_deserialized_opt("output.man")
+            .ok()
+            .flatten()
+            .unwrap_or_default()
+    }
+}
+
 fn main() {
     let mut stdin = io::stdin();
     let ctx = RenderContext::from_json(&mut stdin).unwrap();
-    let arena = Arena::new();
-    let cfg: ManOutputConfiguration = ctx
-        .config
-        .get_deserialized_opt("output.man")
-        .ok()
-        .flatten()
-        .unwrap_or_default();
+    let cfg = ManOutputConfiguration::load(&ctx);
 
     if !cfg.split_chapters {
-        let title = ctx.config.book.title.unwrap_or_default();
-        let mut page = Roff::new(&title, SectionNumber::Miscellaneous);
-
-        for item in ctx.book.iter() {
-            if let BookItem::Chapter(ref ch) = *item {
-                let parsed = markdown_to_roff(ch.content.as_str(), &arena);
-                page = page.section(ch.name.as_str(), parsed);
-            }
-        }
+        let page = mdbook_to_roff(&ctx);
 
         let page = page.to_string().unwrap();
 
@@ -217,15 +243,7 @@ fn main() {
             println!("{}", page)
         }
     } else {
-        let mut pages = vec![];
-        for item in ctx.book.iter() {
-            if let BookItem::Chapter(ref ch) = *item {
-                let mut page = Roff::new(ch.name.as_str(), SectionNumber::Miscellaneous);
-                let parsed = markdown_to_roff(ch.content.as_str(), &arena);
-                page = page.section(ch.name.as_str(), parsed);
-                pages.push(page);
-            }
-        }
+        let pages = mdbook_to_roff_chapters(&ctx);
 
         for (i, page) in pages.iter().enumerate() {
             let page = page.to_string().unwrap();
@@ -241,4 +259,3 @@ fn main() {
         }
     }
 }
-
